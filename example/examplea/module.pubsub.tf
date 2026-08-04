@@ -55,26 +55,10 @@ resource "google_cloud_run_v2_service" "consumer" {
       egress    = "PRIVATE_RANGES_ONLY"
     }
   }
-}
 
-resource "google_monitoring_uptime_check_config" "consumer" {
-  display_name = "pubsub-consumer-uptime-check"
-  timeout      = "10s"
-  period       = "60s"
-
-  http_check {
-    path           = "/"
-    port           = 443
-    request_method = "GET"
-    use_ssl        = true
-  }
-
-  monitored_resource {
-    type = "uptime-url"
-    labels = {
-      host = trimsuffix(trimprefix(google_cloud_run_v2_service.consumer.uri, "https://"), "/")
-    }
-  }
+  depends_on = [
+    google_kms_crypto_key_iam_member.cloud_run_cmek
+  ]
 }
 
 data "google_project" "current" {

@@ -22,6 +22,7 @@ resource "google_pubsub_subscription" "push" {
   }
 
   depends_on = [
-    google_cloud_run_v2_service_iam_member.pubsub_push_invoke
+    google_cloud_run_v2_service_iam_member.pubsub_push_invoke,
+    google_pubsub_topic_iam_member.dlq_publisher
   ]
 }
