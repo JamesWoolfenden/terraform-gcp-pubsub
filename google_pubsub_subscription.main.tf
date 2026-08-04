@@ -8,6 +8,10 @@ resource "google_pubsub_subscription" "main" {
     max_delivery_attempts = 5
   }
 
+  expiration_policy {
+    ttl = ""
+  }
+
   depends_on = [
     google_pubsub_topic_iam_member.dlq_publisher
   ]

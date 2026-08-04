@@ -50,6 +50,17 @@ variable "cloud_run_service_name" {
   }
 }
 
+variable "cloud_run_location" {
+  type        = string
+  description = "Location of the Cloud Run v2 service the push subscription invokes"
+  default     = "europe-west2"
+
+  validation {
+    condition     = length(trimspace(var.cloud_run_location)) > 0
+    error_message = "var.cloud_run_location must be a non-empty string"
+  }
+}
+
 variable "publisher_member" {
   type        = string
   description = "IAM member granted roles/pubsub.publisher on the main topic, e.g. serviceAccount:writer@project.iam.gserviceaccount.com"

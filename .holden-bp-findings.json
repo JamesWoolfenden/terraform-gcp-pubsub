@@ -1,0 +1,60 @@
+{
+  "scan_date": "2026-08-04T00:00:00Z",
+  "scan_path": ".",
+  "findings": [
+    {
+      "id": "HOLDEN_BP_001",
+      "status": "fixed",
+      "first_seen": "2026-08-04",
+      "last_seen": "2026-08-04",
+      "principle": "reliability",
+      "severity": "MEDIUM",
+      "confidence": "high",
+      "title": "Subscriptions have no expiration_policy, so GCP silently deletes them after 31 days of inactivity",
+      "file": "google_pubsub_subscription.main.tf",
+      "resource": "google_pubsub_subscription.main",
+      "explanation": "None of the module's three subscriptions (main, push, dead_letter_consumer) set expiration_policy. Pub/Sub's default is a 31-day inactivity TTL — if a subscription sees no acks/pulls for 31 days, GCP deletes it outright, silently. For push and dead_letter_consumer especially, a quiet period (e.g. a slow month, or a DLQ that's healthy and empty) is exactly when this would trigger, and the fix on discovery is recreating the subscription, which loses any messages that arrived in the gap.",
+      "remediation": "Add expiration_policy { ttl = \"\" } to each subscription to disable auto-expiry, matching GCP's own recommendation for production subscriptions.",
+      "fixable": true,
+      "fix": "expiration_policy {\n    ttl = \"\"\n  }"
+    },
+    {
+      "id": "HOLDEN_BP_002",
+      "status": "fixed",
+      "first_seen": "2026-08-04",
+      "last_seen": "2026-08-04",
+      "principle": "reliability",
+      "severity": "LOW",
+      "confidence": "high",
+      "title": "Push subscription has no ack_deadline_seconds, leaving the 10s default against a Cloud Run push endpoint that can cold-start past it",
+      "file": "google_pubsub_subscription.push.tf",
+      "resource": "google_pubsub_subscription.push",
+      "explanation": "google_pubsub_subscription.push delivers via push_config to a Cloud Run service (push_endpoint / OIDC). With no ack_deadline_seconds set, it uses the 10s default — Pub/Sub treats the push HTTP request as failed if the endpoint hasn't responded within that window, which Cloud Run cold starts routinely exceed, causing spurious retries and duplicate delivery. Notably the module goes the other direction on dead_letter_consumer.tf, which explicitly sets ack_deadline_seconds = 600 even though that subscription is a manually-drained DLQ consumer with no comparable latency pressure — the generous deadline is on the subscription that needs it least, and the default is on the one invoking a possibly-cold-starting service.",
+      "remediation": "Set ack_deadline_seconds on the push subscription to a value that comfortably covers Cloud Run cold start + handler latency, e.g. 60.",
+      "fixable": true,
+      "fix": "ack_deadline_seconds       = 60"
+    },
+    {
+      "id": "HOLDEN_BP_003",
+      "status": "fixed",
+      "first_seen": "2026-08-04",
+      "last_seen": "2026-08-04",
+      "principle": "maintainability",
+      "severity": "LOW",
+      "confidence": "high",
+      "title": "Cloud Run invoker IAM member hardcodes location, unlike every other module input",
+      "file": "google_cloud_run_v2_service_iam_member.pubsub_push_invoke.tf",
+      "resource": "google_cloud_run_v2_service_iam_member.pubsub_push_invoke",
+      "explanation": "location = \"europe-west2\" is a literal in the one resource that grants roles/run.invoker on the caller-supplied Cloud Run service (var.cloud_run_service_name). Every other environment-specific value in this module is a variable (message_retention_duration, push_endpoint, push_service_account_email, cloud_run_service_name itself). A consumer deploying the Cloud Run service in any region other than europe-west2 gets a module that applies cleanly but silently grants the invoker role against a service that doesn't exist there, while the actual service sits ungranted and push delivery fails with a permissions error that doesn't point back at this line.",
+      "remediation": "Add a variable (e.g. cloud_run_location) defaulting to \"europe-west2\" to preserve current behavior for existing callers, and reference it instead of the literal.",
+      "fixable": true,
+      "fix": "location = var.cloud_run_location"
+    }
+  ],
+  "suggested_policies": [
+    {
+      "rationale": "None of HLD_GCP_120/121/280/460 (the existing google_pubsub_subscription coverage) check expiration_policy. A subscription with no expiration_policy set uses Pub/Sub's default 31-day inactivity TTL, which silently deletes the subscription — a production-reliability gap that applies to any Terraform provisioning google_pubsub_subscription, not just this module. Revised per user feedback: the check only requires the block to be explicitly present, not that ttl equals any specific value — a deliberate short TTL is a valid pass, only the invisible 31-day default-by-omission is flagged. IMPLEMENTED as HLD_GCP_461 in the local paloaltonetworks/holden fork (E:/Code/holden): policies/gcp/pubsub/subscription-expiration-policy.yaml, fixture tests/fixtures/gcp-pubsub-subscription-expiration-policy/main.tf, test internal/policy/gcp_pubsub_subscription_expiration_policy_test.go. Tests and lint pass; kept local, not pushed/PR'd upstream, per user's choice.",
+      "yaml": "id: HLD_GCP_461\nname: Pub/Sub subscriptions should set an explicit expiration_policy\nprinciple: reliability\nseverity: LOW\nrationale: |\n  A google_pubsub_subscription with no expiration_policy block uses Pub/Sub's\n  default: the subscription is deleted after 31 days with no acks or pulls.\n  This is a real, active deletion, not just an idle no-op. This policy does\n  not require disabling expiration outright — it only requires the choice to\n  be explicit; a deliberately short TTL for a genuinely ephemeral\n  subscription is a fine answer.\nremediation: |\n  Set expiration_policy explicitly, with whatever ttl fits the subscription's\n  actual lifecycle:\n  ```hcl\n  resource \"google_pubsub_subscription\" \"main\" {\n    expiration_policy {\n      ttl = \"\"  # never expires\n    }\n  }\n  ```\nresources:\n  google_pubsub_subscription:\n    path: expiration_policy\n    not_null: true\n"
+    }
+  ]
+}
