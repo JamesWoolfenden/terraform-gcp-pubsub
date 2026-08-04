@@ -25,6 +25,9 @@ resource "google_service_account" "pubsub_push" {
   display_name = "Pub/Sub push subscription invoker"
 }
 
+# holden:ignore:HLD_GCP_200 — image is Google's public Cloud Run quickstart
+# demo, used here only as a placeholder container. In production, pin to a
+# version tag or @sha256 digest.
 resource "google_cloud_run_v2_service" "consumer" {
   name     = "pubsub-consumer"
   location = "europe-west2"
