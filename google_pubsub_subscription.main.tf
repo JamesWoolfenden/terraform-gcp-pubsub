@@ -1,7 +1,6 @@
 resource "google_pubsub_subscription" "main" {
   name                       = "main"
   topic                      = google_pubsub_topic.main.id
-  kms_key_name               = var.kms_key_name
   message_retention_duration = var.message_retention_duration
 
   dead_letter_policy {

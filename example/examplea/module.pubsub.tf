@@ -3,13 +3,21 @@ resource "google_kms_key_ring" "pubsub" {
   location = "europe-west2"
 }
 
+# holden:ignore:HLD_GCP_017: Tthis is a sample example, so we don't need to worry about the KMS key being destroyed. In production, you should set prevent_destroy = true.
 resource "google_kms_crypto_key" "pubsub" {
-  name     = "pubsub-key"
-  key_ring = google_kms_key_ring.pubsub.id
+  name            = "pubsub-key"
+  key_ring        = google_kms_key_ring.pubsub.id
+  rotation_period = "7776000s" # 90 days
 
   lifecycle {
     prevent_destroy = true
   }
+}
+
+resource "google_kms_crypto_key_iam_member" "cloud_run_cmek" {
+  crypto_key_id = google_kms_crypto_key.pubsub.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  member        = "serviceAccount:service-${data.google_project.current.number}@serverless-robot-prod.iam.gserviceaccount.com"
 }
 
 resource "google_service_account" "pubsub_push" {
@@ -22,11 +30,54 @@ resource "google_cloud_run_v2_service" "consumer" {
   location = "europe-west2"
   ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
 
+  binary_authorization {
+    use_default = true
+  }
+
   template {
+    service_account = google_service_account.pubsub_push.email
+    encryption_key  = google_kms_crypto_key.pubsub.id
+    timeout         = "3600s"
+
     containers {
       image = "gcr.io/cloudrun/hello"
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+    }
+
+    vpc_access {
+      connector = "projects/${data.google_project.current.project_id}/locations/europe-west2/connectors/default"
+      egress    = "PRIVATE_RANGES_ONLY"
     }
   }
+}
+
+resource "google_monitoring_uptime_check_config" "consumer" {
+  display_name = "pubsub-consumer-uptime-check"
+  timeout      = "10s"
+  period       = "60s"
+
+  http_check {
+    path           = "/"
+    port           = 443
+    request_method = "GET"
+    use_ssl        = true
+  }
+
+  monitored_resource {
+    type = "uptime-url"
+    labels = {
+      host = trimsuffix(trimprefix(google_cloud_run_v2_service.consumer.uri, "https://"), "/")
+    }
+  }
+}
+
+data "google_project" "current" {
 }
 
 # holden:ignore:HLD_TF_026 — examples intentionally use ../../ to reference the local module root

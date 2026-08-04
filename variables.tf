@@ -1,6 +1,7 @@
 variable "kms_key_name" {
   type        = string
   description = "Resource name of the Cloud KMS key used to encrypt topics and subscriptions"
+  sensitive   = true
 
   validation {
     condition     = length(trimspace(var.kms_key_name)) > 0

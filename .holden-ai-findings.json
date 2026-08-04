@@ -1,0 +1,38 @@
+{
+  "scan_date": "2026-08-04T00:00:00Z",
+  "scan_path": ".",
+  "findings": [
+    {
+      "id": "HOLDEN_AI_001",
+      "status": "fixed",
+      "first_seen": "2026-08-04",
+      "last_seen": "2026-08-04",
+      "suppression_reason": null,
+      "principle": "reliability",
+      "severity": "HIGH",
+      "confidence": "high",
+      "title": "Push subscription dead-letters into its own source topic, and no service agent grant makes the fallback work either",
+      "file": "google_pubsub_subscription.push.tf",
+      "line": 7,
+      "resource": "google_pubsub_subscription.push",
+      "related_resources": [
+        "google_pubsub_subscription.main",
+        "google_pubsub_topic.main",
+        "google_pubsub_topic.dead_letter",
+        "google_pubsub_topic_iam_member.publisher",
+        "google_pubsub_topic_iam_member.dlq_publisher"
+      ],
+      "explanation": "google_pubsub_subscription.push sets dead_letter_policy.dead_letter_topic = google_pubsub_topic.main.id — its own source topic — instead of google_pubsub_topic.dead_letter.id, which the sibling google_pubsub_subscription.main correctly uses and which this module already provisions a dedicated consumer for (google_pubsub_subscription.dead_letter_consumer). Redelivering exhausted messages back onto the topic that feeds this same subscription does not quarantine them for inspection; it just re-enters the delivery loop. Separately, HLD_GCP_280 (service-agent publisher IAM on the DLQ topic) reports PASS here, but only because its companion check verifies role == roles/pubsub.publisher on the linked topic without checking who holds it — the only publisher grant on google_pubsub_topic.main is google_pubsub_topic_iam_member.publisher, whose member is var.publisher_member (an external publisher), not the Pub/Sub service agent. So even if main were the intended target, dead-lettering would still fail at runtime because the service agent itself was never granted publisher there. This is the same class of blind spot HLD_GCP_458 already documents for CMEK grants (a companion resource exists and satisfies the role check, but the member is wrong), just unhandled for HLD_GCP_280.",
+      "remediation": "Change google_pubsub_subscription.push.tf line 7 to dead_letter_topic = google_pubsub_topic.dead_letter.id, matching google_pubsub_subscription.main's wiring. The existing google_pubsub_topic_iam_member.dlq_publisher grant already covers the Pub/Sub service agent on that topic, so no new IAM resource is needed once the target is corrected.",
+      "supersedes": "HLD_GCP_280",
+      "fixable": false
+    }
+  ],
+  "suggested_policies": [
+    {
+      "rationale": "HLD_GCP_280 confirms a google_pubsub_topic_iam_member with role=roles/pubsub.publisher exists on the subscription's dead_letter_topic, but never checks that the member is actually the Pub/Sub service agent (or a google_project_service_identity for pubsub.googleapis.com). A publisher grant to any other principal satisfies the current check while leaving dead-lettering non-functional in production — exactly what HOLDEN_AI_001 found. HLD_GCP_458 already solved this exact member-verification problem for CMEK grants with an any: [references-to-service-identity, regex-match-literal-service-agent] pattern; this proposes the same pattern for the dead-letter publisher grant. coverage_by_type[google_pubsub_subscription] and coverage_by_type[google_pubsub_topic_iam_member] were checked — no existing policy on either type verifies this companion's member. IMPLEMENTED as HLD_GCP_460 in the local paloaltonetworks/holden fork (E:/Code/holden): policies/gcp/pubsub/dead-letter-service-agent-identity.yaml, fixture tests/fixtures/gcp-pubsub-dlq-service-agent-identity/main.tf, test internal/policy/gcp_pubsub_dlq_service_agent_identity_test.go. Tests and lint pass; not yet pushed/PR'd upstream, per user's choice to keep it local for now.",
+      "yaml": "id: HLD_GCP_460\nname: Pub/Sub dead-letter service-agent grant must target the Pub/Sub service agent, not just any publisher\nprinciple: reliability\nseverity: HIGH\nrationale: |\n  A google_pubsub_subscription with a dead_letter_policy needs the Pub/Sub\n  service agent (service-PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com)\n  to hold roles/pubsub.publisher on the dead-letter topic. HLD_GCP_280 checks\n  that a companion google_pubsub_topic_iam_member exists with that role, but\n  not who holds it. A publisher grant to any other principal (an application\n  service account, a human operator) satisfies that check while leaving\n  dead-lettering silently non-functional: messages that exhaust\n  max_delivery_attempts redeliver indefinitely instead of landing in the DLQ,\n  and nothing on the subscription resource itself surfaces the gap.\nremediation: |\n  Grant the role to the Pub/Sub service agent specifically, either via a\n  google_project_service_identity reference or the literal service-agent\n  member string:\n\n  ```hcl\n  resource \"google_project_service_identity\" \"pubsub\" {\n    provider = google-beta\n    service  = \"pubsub.googleapis.com\"\n  }\n\n  resource \"google_pubsub_topic_iam_member\" \"dlq_publisher\" {\n    topic  = google_pubsub_topic.dead_letter.id\n    role   = \"roles/pubsub.publisher\"\n    member = \"serviceAccount:${google_project_service_identity.pubsub.email}\"\n  }\n  ```\nresources:\n  google_pubsub_subscription:\n    filter:\n      path: dead_letter_policy\n      not_null: true\n    requires_companion:\n      type: google_pubsub_topic_iam_member\n      linked_via:\n        from: dead_letter_policy.dead_letter_topic\n        to: topic\n      where:\n        all:\n          - path: role\n            equals: roles/pubsub.publisher\n          - any:\n              - references:\n                  via: member\n                  type: google_project_service_identity\n                  must:\n                    path: service\n                    equals: pubsub.googleapis.com\n              - path: member\n                matches: \"^serviceAccount:service-[0-9]+@gcp-sa-pubsub\\\\.iam\\\\.gserviceaccount\\\\.com$\"\n"
+    }
+  ],
+  "suggested_suppressions": []
+}
