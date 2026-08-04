@@ -25,9 +25,6 @@ resource "google_service_account" "pubsub_push" {
   display_name = "Pub/Sub push subscription invoker"
 }
 
-# holden:ignore:HLD_GCP_200 — image is Google's public Cloud Run quickstart
-# demo, used here only as a placeholder container. In production, pin to a
-# version tag or @sha256 digest.
 resource "google_cloud_run_v2_service" "consumer" {
   name     = "pubsub-consumer"
   location = "europe-west2"
@@ -43,7 +40,7 @@ resource "google_cloud_run_v2_service" "consumer" {
     timeout         = "3600s"
 
     containers {
-      image = "gcr.io/cloudrun/hello"
+      image = "gcr.io/cloudrun/hello@sha256:2f2db103b6166fcbac475d1df53b1449d8496a07535c4031d778f01f6b7864eb"
 
       resources {
         limits = {
