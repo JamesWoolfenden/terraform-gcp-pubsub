@@ -3,7 +3,7 @@ resource "google_kms_key_ring" "pubsub" {
   location = "europe-west2"
 }
 
-# holden:ignore:HLD_GCP_017: Tthis is a sample example, so we don't need to worry about the KMS key being destroyed. In production, you should set prevent_destroy = true.
+# holden:ignore:HLD_GCP_017: This is a sample example, so we don't need to worry about the KMS key being destroyed. In production, you should set prevent_destroy = true.
 resource "google_kms_crypto_key" "pubsub" {
   name            = "pubsub-key"
   key_ring        = google_kms_key_ring.pubsub.id
